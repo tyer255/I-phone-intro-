@@ -223,6 +223,7 @@ export default function App() {
     let disposed = false;
 
     // Outer screen canvas (690 x 1000) & Inner screen canvas (2002 x 1400)
+    // Both textures are rendered & uploaded to the GPU ONCE at load time (zero per-frame texture uploads during animation!)
     const O = document.createElement('canvas');
     O.width = 690;
     O.height = 1000;
@@ -230,7 +231,7 @@ export default function App() {
     L.width = 2002;
     L.height = 1400;
 
-    // Dedicated upright portrait canvas (1400 x 2002) for mobile full-screen veil
+    // Upright portrait canvas (1400 x 2002) for mobile full-screen veil
     const veilPortraitCanvas = document.createElement('canvas');
     veilPortraitCanvas.width = 1400;
     veilPortraitCanvas.height = 2002;
@@ -240,11 +241,28 @@ export default function App() {
     for (const tex of [G, N]) {
       tex.flipY = false;
       tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 8;
+      tex.generateMipmaps = false;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
     }
+
+    // Inner screen material uses a GPU uniform color multiplier (`#000000` -> `#ffffff`)
+    // so the inner screen illuminates smoothly during unfold with ZERO CPU/GPU texture uploads!
+    const outerScreenMaterial = new THREE.MeshBasicMaterial({
+      map: G,
+      toneMapped: false,
+    });
+    const innerScreenMaterial = new THREE.MeshBasicMaterial({
+      map: N,
+      color: 0xffffff,
+      toneMapped: false,
+    });
 
     const titleImg = new Image();
     let titleReady = false;
+    let isMobilePortrait =
+      (stageEl.clientWidth || window.innerWidth) <
+      (stageEl.clientHeight || window.innerHeight);
 
     const drawCoverImage = (
       ctx: CanvasRenderingContext2D,
@@ -279,7 +297,7 @@ export default function App() {
       ctx.fillRect(0, 0, w, h);
     };
 
-    // Outer cover lock screen (690 x 1000)
+    // Outer cover lock screen (690 x 1000) — drawn ONCE at load
     const drawOuterScreen = () => {
       const ctx = O.getContext('2d');
       if (!ctx) return;
@@ -330,23 +348,19 @@ export default function App() {
     };
 
     /**
-     * Renders the Mridul Studios "Floating Phones" hero screen for either:
-     * - Desktop Landscape (`w = 2002, h = 1400, isPortrait = false`)
-     * - Mobile Portrait (`w = 1400, h = 2002, isPortrait = true`)
+     * Renders the complete, full-resolution Mridul Studios "Floating Phones" screen
+     * for either Desktop Landscape (`2002 x 1400`) or Mobile Portrait (`1400 x 2002`).
      */
     const renderScreenContent = (
       ctx: CanvasRenderingContext2D,
       w: number,
       h: number,
-      e: number,
       isPortrait: boolean,
     ) => {
-      const s = eh(ed(e, 0, 0.7));
       ctx.fillStyle = BG_DARK;
       ctx.fillRect(0, 0, w, h);
-      ctx.globalAlpha = s;
-      drawCoverImage(ctx, w, h, 1.08 - 0.08 * s, isPortrait ? 0.58 : 0.5, 0.5);
       ctx.globalAlpha = 1;
+      drawCoverImage(ctx, w, h, 1.0, isPortrait ? 0.58 : 0.5, 0.5);
       drawScrim(ctx, w, h, [
         [0, 0.38],
         [0.5, 0.14],
@@ -356,24 +370,22 @@ export default function App() {
 
       ctx.fillStyle = '#f6f1ea';
       ctx.textAlign = 'center';
-      const n = (delay: number) => eh(ed(e, delay, delay + 0.4));
 
       if (!isPortrait) {
-        // Desktop & Tablet Landscape (2002 x 1400)
         const r = w / 1430;
         ctx.shadowColor = 'rgba(0,0,0,.35)';
         ctx.shadowBlur = 40 * r;
 
-        ctx.globalAlpha = 0.88 * n(0.15);
+        ctx.globalAlpha = 0.88;
         ctx.font = `400 ${22 * r}px ${fonts.mono}`;
         ctx.fillText(
           'M R I D U L   S T U D I O S   P R E S E N T S',
           w / 2,
-          285 * r + 10 * r * (1 - n(0.15)),
+          285 * r,
         );
 
-        ctx.globalAlpha = n(0.3);
-        const o = 455 * r + 18 * r * (1 - n(0.3));
+        ctx.globalAlpha = 1;
+        const o = 455 * r;
         ctx.font = `400 ${168 * r}px ${fonts.serif}`;
         const c = 'Floating ';
         const lWidth = ctx.measureText(c).width;
@@ -387,16 +399,12 @@ export default function App() {
         ctx.fillText(bText, w / 2 - (lWidth + dWidth) / 2 + lWidth, o);
 
         ctx.textAlign = 'center';
-        ctx.globalAlpha = 0.9 * n(0.45);
+        ctx.globalAlpha = 0.9;
         ctx.font = `italic 400 ${40 * r}px ${fonts.serif}`;
-        ctx.fillText(
-          'Spatial Web Architecture, 2026',
-          w / 2,
-          572 * r + 10 * r * (1 - n(0.45)),
-        );
+        ctx.fillText('Spatial Web Architecture, 2026', w / 2, 572 * r);
 
         ctx.shadowBlur = 0;
-        ctx.globalAlpha = 0.72 * n(0.6);
+        ctx.globalAlpha = 0.72;
         ctx.font = `400 ${15 * r}px ${fonts.mono}`;
         ctx.fillText(
           'CRAFTED BY MRIDUL    CREATIVE TECHNOLOGIST    3D SPATIAL ENGINEERING',
@@ -404,7 +412,7 @@ export default function App() {
           h - 110 * r,
         );
 
-        ctx.globalAlpha = 0.52 * n(0.7);
+        ctx.globalAlpha = 0.52;
         ctx.font = `400 ${13 * r}px ${fonts.mono}`;
         ctx.fillText(
           'INTERACTIVE DIGITAL EDITION    ·    DESIGNED FOR WEB & MOBILE',
@@ -413,20 +421,19 @@ export default function App() {
         );
       } else {
         // Mobile Portrait (1400 x 2002) — sized inside the 820px safe center corridor
-        // so both the unfolded portrait tablet and the 100vw x 100dvh full-screen zoom frame every letter cleanly
         ctx.shadowColor = 'rgba(0,0,0,.4)';
         ctx.shadowBlur = 44;
 
-        ctx.globalAlpha = 0.9 * n(0.15);
+        ctx.globalAlpha = 0.9;
         ctx.font = `400 22px ${fonts.mono}`;
         ctx.fillText(
           'M R I D U L   S T U D I O S   P R E S E N T S',
           w / 2,
-          680 + 14 * (1 - n(0.15)),
+          680,
         );
 
-        ctx.globalAlpha = n(0.3);
-        const o = 865 + 22 * (1 - n(0.3));
+        ctx.globalAlpha = 1;
+        const o = 865;
         ctx.font = `400 132px ${fonts.serif}`;
         const c = 'Floating ';
         const lWidth = ctx.measureText(c).width;
@@ -440,16 +447,12 @@ export default function App() {
         ctx.fillText(bText, w / 2 - (lWidth + dWidth) / 2 + lWidth, o);
 
         ctx.textAlign = 'center';
-        ctx.globalAlpha = 0.92 * n(0.45);
+        ctx.globalAlpha = 0.92;
         ctx.font = `italic 400 42px ${fonts.serif}`;
-        ctx.fillText(
-          'Spatial Web Architecture, 2026',
-          w / 2,
-          968 + 14 * (1 - n(0.45)),
-        );
+        ctx.fillText('Spatial Web Architecture, 2026', w / 2, 968);
 
         ctx.shadowBlur = 0;
-        ctx.globalAlpha = 0.74 * n(0.6);
+        ctx.globalAlpha = 0.74;
         ctx.font = `400 17px ${fonts.mono}`;
         ctx.fillText(
           'CRAFTED BY MRIDUL   ·   CREATIVE TECHNOLOGIST',
@@ -457,7 +460,7 @@ export default function App() {
           h - 210,
         );
 
-        ctx.globalAlpha = 0.54 * n(0.7);
+        ctx.globalAlpha = 0.54;
         ctx.font = `400 15px ${fonts.mono}`;
         ctx.fillText(
           'INTERACTIVE DIGITAL EDITION   ·   2026',
@@ -469,60 +472,51 @@ export default function App() {
       ctx.globalAlpha = 1;
     };
 
-    let isMobilePortrait = false;
-
-    const drawInnerScreen = (e: number) => {
+    /**
+     * Bakes both the 3D inner screen texture `N` and the full-screen `.fp-veil` image ONCE
+     * during loading (or orientation change) so ZERO 2D canvas drawing or texture uploads
+     * occur while the phone is rotating and unfolding!
+     */
+    const bakeInnerAndVeilOnce = () => {
       const ctx = L.getContext('2d');
       if (!ctx) return;
 
       if (!isMobilePortrait) {
-        renderScreenContent(ctx, L.width, L.height, e, false);
+        renderScreenContent(ctx, L.width, L.height, false);
+        N.needsUpdate = true;
+        if (titleReady) {
+          veilEl.style.backgroundImage = `url(${L.toDataURL('image/jpeg', 0.92)})`;
+        }
       } else {
-        // When the 3D phone rotates +90° (Math.PI / 2 counter-clockwise) around Z into Portrait Mode,
-        // we rotate the 2D canvas +90° clockwise so the inner screen UI is upright in Portrait Mode!
-        ctx.save();
-        ctx.translate(L.width / 2, L.height / 2);
-        ctx.rotate(Math.PI / 2);
-        ctx.translate(-L.height / 2, -L.width / 2);
-        renderScreenContent(ctx, L.height, L.width, e, true);
-        ctx.restore();
-      }
-      N.needsUpdate = true;
-    };
-
-    const syncVeilBackground = () => {
-      if (!titleReady) return;
-      if (!isMobilePortrait) {
-        drawInnerScreen(1);
-        veilEl.style.backgroundImage = `url(${L.toDataURL('image/jpeg', 0.92)})`;
-      } else {
-        drawInnerScreen(1);
         const vCtx = veilPortraitCanvas.getContext('2d');
         if (vCtx) {
           renderScreenContent(
             vCtx,
             veilPortraitCanvas.width,
             veilPortraitCanvas.height,
-            1,
             true,
           );
-          veilEl.style.backgroundImage = `url(${veilPortraitCanvas.toDataURL('image/jpeg', 0.92)})`;
+          // Copy the rendered portrait canvas into L rotated +90° clockwise
+          ctx.save();
+          ctx.translate(L.width / 2, L.height / 2);
+          ctx.rotate(Math.PI / 2);
+          ctx.translate(-L.height / 2, -L.width / 2);
+          ctx.drawImage(veilPortraitCanvas, 0, 0);
+          ctx.restore();
+          N.needsUpdate = true;
+          if (titleReady) {
+            veilEl.style.backgroundImage = `url(${veilPortraitCanvas.toDataURL('image/jpeg', 0.92)})`;
+          }
         }
       }
     };
-
-    let eJ = -1;
-    let e0 = false;
 
     titleImg.onload = () => {
       if (disposed) return;
       titleReady = true;
       assetStatus.title = 1;
       drawOuterScreen();
-      drawInnerScreen(eJ > 0 ? eJ / 60 : 0);
-      if (e0) {
-        syncVeilBackground();
-      }
+      bakeInnerAndVeilOnce();
     };
     titleImg.onerror = () => {
       assetStatus.title = 1;
@@ -532,15 +526,14 @@ export default function App() {
     document.fonts?.ready.then(() => {
       if (!disposed) {
         drawOuterScreen();
-        drawInnerScreen(eJ > 0 ? eJ / 60 : 0);
-        if (e0) {
-          syncVeilBackground();
-        }
+        bakeInnerAndVeilOnce();
       }
     });
 
     // 3D Hierarchy: U -> W -> Q -> J (duo.glb)
+    // Use 'YXZ' rotation order on U so screen-space Z portrait rotation and Y spin compose cleanly!
     const U = new THREE.Group();
+    U.rotation.order = 'YXZ';
     const W = new THREE.Group();
     const Q = new THREE.Group();
     U.add(W);
@@ -578,15 +571,9 @@ export default function App() {
           const mesh = child as THREE.Mesh;
           const mat = mesh.material as THREE.Material;
           if (mat.name === 'C_SW_Screen_Outer') {
-            mesh.material = new THREE.MeshBasicMaterial({
-              map: G,
-              toneMapped: false,
-            });
+            mesh.material = outerScreenMaterial;
           } else if (mat.name === 'C_StarWhite_Screen_Inner') {
-            mesh.material = new THREE.MeshBasicMaterial({
-              map: N,
-              toneMapped: false,
-            });
+            mesh.material = innerScreenMaterial;
           }
           mesh.frustumCulled = false;
         });
@@ -610,6 +597,13 @@ export default function App() {
 
         Q.add(J);
         U.visible = true;
+
+        // Pre-compile all WebGL shaders and upload textures during the loading phase
+        // so zero shader compilation or texture upload happens when the phone rotates!
+        if (!isSoftwareGl) {
+          renderer.compile(scene, camera);
+        }
+
         ee = performance.now();
         assetStatus.duo = 1;
         document.body.dataset.modelLoaded = 'true';
@@ -648,15 +642,12 @@ export default function App() {
       eE = ey * camera.aspect;
 
       if (orientationChanged) {
-        drawInnerScreen(eJ > 0 ? eJ / 60 : 0);
-        if (e0) {
-          syncVeilBackground();
-        }
+        bakeInnerAndVeilOnce();
       }
     };
     handleResize();
     drawOuterScreen();
-    drawInnerScreen(0);
+    bakeInnerAndVeilOnce();
 
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(stageEl);
@@ -680,8 +671,6 @@ export default function App() {
       pinnedTimeL = null;
       ee = performance.now();
       ez = 0;
-      eJ = -1;
-      e0 = false;
       et = -1;
       lastReportedCount = -1;
       veilEl.style.opacity = '0';
@@ -691,15 +680,12 @@ export default function App() {
         setFold(1);
       }
       drawOuterScreen();
-      drawInnerScreen(0);
       setLoadProgress(0);
       setPhase('loading');
     };
 
     window.__setIntroTime = (targetL: number | null) => {
       pinnedTimeL = targetL;
-      e0 = false;
-      eJ = -1;
     };
     window.__replayIntro = () => replayIntroRef.current();
 
@@ -772,7 +758,6 @@ export default function App() {
         now - ee > 1000 * Number(!reducedMotion)
       ) {
         ez = reducedMotion ? now - 3500 : now;
-        drawOuterScreen();
         eZ = eY;
       }
 
@@ -805,20 +790,11 @@ export default function App() {
         const c = l < 0 ? 0 : ep(ed(l, 0.85, 1.75));
         setFold(1 - c);
 
-        const b = l < 0 ? 0 : ed(l, 1.4, 2.2);
-        if (Math.round(60 * b) !== eJ) {
-          eJ = Math.round(60 * b);
-          drawInnerScreen(b);
-        }
-        if (b >= 1 && !e0 && titleReady) {
-          e0 = true;
-          syncVeilBackground();
-        }
+        // Smoothly illuminate the inner screen via a 3-float WebGL uniform (`color.setScalar`)
+        // as the hinge opens — ZERO 2D canvas redraws or texture uploads during the rotation!
+        const screenBrightness = l < 0 ? 0.04 : 0.04 + 0.96 * eh(ed(l, 1.05, 1.95));
+        innerScreenMaterial.color.setScalar(screenBrightness);
 
-        // Scale `d`:
-        // On Desktop Landscape, fits unfolded width `0.168116` into `0.8 * eE`.
-        // On Mobile Portrait, starts at folded scale and as `c` unfolds + rotates 90° into portrait,
-        // fits the rotated portrait width (`Z`) into `0.86 * eE` and height (`0.168116`) into `0.78 * ey`.
         const desktopD = Math.min(2.0909999999999997 / Z, (0.8 * eE) / 0.168116);
         const portraitUnfoldedD = Math.min(
           (0.78 * ey) / 0.168116,
@@ -831,8 +807,6 @@ export default function App() {
         W.scale.setScalar(d * (0.6 + 0.4 * a));
         Q.position.copy(Y.closed).lerp(Y.open, c).multiplyScalar(-1);
 
-        // On Mobile Portrait (`isMobilePortrait = true`), as the phone unfolds (`c: 0 -> 1`),
-        // it smoothly rotates 90 degrees (`Math.PI / 2`) around Z into vertical Portrait orientation!
         const rotZ =
           -0.05 * (1 - t) + (isMobilePortrait ? c * (Math.PI / 2) : 0);
         U.rotation.set(-0.1 * (1 - t), s, rotZ);
@@ -894,6 +868,8 @@ export default function App() {
           mats.forEach((m) => m.dispose());
         }
       });
+      outerScreenMaterial.dispose();
+      innerScreenMaterial.dispose();
       G.dispose();
       N.dispose();
       envTexture.dispose();
