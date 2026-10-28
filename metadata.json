@@ -1,0 +1,6 @@
+{
+  "name": "iPhone Duo — 3D Foldable Intro & Studio",
+  "description": "Interactive 3D foldable iPhone Duo intro animation and product showcase powered by Three.js and GSAP, with desktop landscape and mobile portrait choreography plus single-file HTML export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
